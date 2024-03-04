@@ -1,0 +1,15 @@
+{
+  "name": "koogle-adserver",
+  "version": "1.0.0",
+  "description": "A small group assignment project for ASD (Advanced Software Development). We are going to build an Ad Server which will replicate the basic functionality of an existing Ad Server such as Google Ads and AdZerk",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
