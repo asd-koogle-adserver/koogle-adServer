@@ -1,8 +1,4 @@
-
-//version2 
-import { gql } from 'apollo-server-express';
-
-const typeDefs = gql`
+const typeDefs = `
   type User {
     id: ID!
     username: String!
