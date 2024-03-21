@@ -1,8 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-//version2 
-const apollo_server_express_1 = require("apollo-server-express");
-const typeDefs = (0, apollo_server_express_1.gql) `
+const typeDefs = `
   type User {
     id: ID!
     username: String!
