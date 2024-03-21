@@ -16,10 +16,17 @@ const server_1 = require("@apollo/server");
 const standalone_1 = require("@apollo/server/standalone");
 const schema_1 = __importDefault(require("./schema")); // Import your schema definition
 const resolvers_1 = __importDefault(require("./resolvers")); // Import your resolver functions
+const get_env_variables_1 = require("./utils/get_env_variables");
+const init_db_1 = require("./utils/init_db");
 const server = new server_1.ApolloServer({ typeDefs: schema_1.default, resolvers: resolvers_1.default });
 (() => __awaiter(void 0, void 0, void 0, function* () {
     const { url } = yield (0, standalone_1.startStandaloneServer)(server, {
-        listen: { port: 8080 },
+        listen: { port: get_env_variables_1.PORT },
+        context: () => __awaiter(void 0, void 0, void 0, function* () {
+            return ({
+                supabase: init_db_1.supabase,
+            });
+        }),
     });
     console.log(`🚀  Server ready at: ${url}`);
 }))();
