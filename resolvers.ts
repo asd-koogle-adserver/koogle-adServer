@@ -44,6 +44,12 @@ const resolvers = {
       const user = users.find((u: any) => u.id === id);
       return user;
     },
+    captureClick: async (_:any, args: any, { supabase, res }: any) => {
+
+      console.log('Click captured')
+
+      res.redirect('http://localhost:8000');
+    }
     // Add resolver for user login here...
   },
   Mutation: {
