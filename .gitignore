@@ -1,6 +1,7 @@
 # node
 node_modules
 dist
+.env
 
 # mac
 .DS_Store

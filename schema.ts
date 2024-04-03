@@ -56,6 +56,7 @@ const typeDefs = `
     conversion(id: ID!): Conversion    # Add this line as we go
     allConversions: [Conversion!]!     # Add this line as we go
     user(id: ID!): User            # Add this line as we go
+    captureClick(placementID: ID!, zoneId: ID!, campaignId: ID!, adItemId: ID!): String
   }
 
   type Mutation {
@@ -64,7 +65,6 @@ const typeDefs = `
     createAdvert(title: String!, description: String!, imageUrl: String!): Advert!
     createZone(name: String!, description: String!): Zone!
     createCampaign(name: String!, description: String!): Campaign!
-    captureClick(advertId: ID!, zoneId: ID!, timestamp: String!): Click!
     captureConversion(clickId: ID!, conversionData: String!, timestamp: String!): Conversion!
   }
 `;
