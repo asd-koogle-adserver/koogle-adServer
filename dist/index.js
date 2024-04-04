@@ -20,7 +20,7 @@ const init_db_1 = require("./utils/init_db");
 const express4_1 = require("@apollo/server/express4");
 const drainHttpServer_1 = require("@apollo/server/plugin/drainHttpServer");
 const cors_1 = __importDefault(require("cors"));
-const express_1 = __importDefault(require("express"));
+const express_1 = __importDefault(require("express")); //use this library for 
 const http_1 = __importDefault(require("http"));
 const body_parser_1 = require("body-parser");
 const morgan_1 = __importDefault(require("morgan"));
@@ -73,6 +73,91 @@ function startServer() {
             // res.redirect("http://localhost:8000");
             return res.redirect(adItemData.data.location);
         }));
+        app.get("/adserve", (req, res) => __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d;
+            //logic goes here
+            try {
+                const type = req.query.type; //request a query
+                const zoneID = parseInt((_b = (_a = req.query.zoneID) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : '0'); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
+                //if there is a Zone object or not
+                const { data: zoneItemData, error } = yield init_db_1.supabase
+                    .from("Zones") //supabase table name
+                    .select()
+                    .eq("id", zoneID)
+                    .maybeSingle();
+                if (!zoneItemData) {
+                    return res.send("No Zone Item Found");
+                }
+                // } catch (e) { }
+                // Query the 'Placements' table in Supabase
+                const { data: placementsData, error: placementError } = yield init_db_1.supabase
+                    .from("Placements") //supabase table name
+                    .select()
+                    .eq("zone_id", zoneID);
+                if (!placementsData || placementsData.length === 0) {
+                    return res.send("No Placements Found"); //can add as we go
+                }
+                //placement
+                // Select a random placement from the fetched placements data
+                const randomIndex = Math.floor(Math.random() * placementsData.length);
+                const randomPlacement = placementsData[randomIndex];
+                const placement_id = randomPlacement.id;
+                // const type = req.query.type; //request a query
+                //const placement_id = parseInt(req.query.placement_id?.toString() ?? '0'); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
+                //still change ontop my logic
+                const { data: placementItemData } = yield init_db_1.supabase
+                    .from("Placement") //supabase table name
+                    .select()
+                    .eq("id", placement_id)
+                    .maybeSingle();
+                if (!placementItemData) {
+                    return res.send("No Placements Found");
+                }
+                //const placementID = placement_id;
+                //campaign
+                //const type = req.query.type; //request a query
+                const campaign = parseInt((_d = (_c = req.query.campaignID) === null || _c === void 0 ? void 0 : _c.toString()) !== null && _d !== void 0 ? _d : '0');
+                const { data: campaignItemData, error: campaignError } = yield init_db_1.supabase
+                    .from("Campaign")
+                    .select()
+                    .eq("id", placementItemData.advertisement_id)
+                    .maybeSingle();
+                if (campaignError) {
+                    // Handle any potential errors
+                    return res.status(200).send("Error fetching campaign");
+                }
+                if (!campaignItemData) {
+                    return res.send("No Campaign Found");
+                }
+                const campaignID = campaignItemData.id;
+                const { data: conversionsData } = yield init_db_1.supabase
+                    .from("Conversions")
+                    .select()
+                    .eq("campaign_id", campaignID);
+                // Retrieve ad items associated with conversions
+                const adItems = [];
+                if (conversionsData) {
+                    for (const conversion of conversionsData) {
+                        const { data: adItemsData, error: adItemsError } = yield init_db_1.supabase
+                            .from("AdItem")
+                            .select()
+                            .eq("conversion_id", conversion.id); // Assuming ad items have a foreign key reference to conversions
+                        if (adItemsData) {
+                            adItems.push(...adItemsData);
+                        }
+                    }
+                }
+                else {
+                    // Handle the case when no conversions are found
+                    return res.send("No Conversions Found");
+                }
+            }
+            catch (e) { }
+        })
+        //placement
+        //test run
+        // res.send("Hello, Help, will it change!")
+        );
         app.use("/", (0, cors_1.default)({
             origin: true,
             credentials: true,
@@ -80,7 +165,7 @@ function startServer() {
         // json(),
         // cookieParser(),
         (0, express4_1.expressMiddleware)(server, {
-            context: (_a) => __awaiter(this, [_a], void 0, function* ({ req, res }) {
+            context: (_e) => __awaiter(this, [_e], void 0, function* ({ req, res }) {
                 return ({
                     // user: await get_user(req,res, JWT_SECRET,tokenRepository),
                     // authScope: getScope(req.headers.authorization) ,
