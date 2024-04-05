@@ -25,4 +25,8 @@ export const impression_capture_schema = Joi.object({
     ip_address: Joi.string().optional(),
     device_type: Joi.string().optional(),
     browser: Joi.string().optional(),
+
+    
   });
+
+  // export const impression_capture_schema = Joi.object({});

@@ -46,6 +46,13 @@ const typeDefs = `
     timestamp: String!
   }
 
+  type Impressions{
+    id: ID!
+    advertId: ID!
+    zoneId: ID!
+    timestamp: String!
+  }
+
   type Query {
     advert(id: ID!): Advert
     zone(id: ID!): Zone
