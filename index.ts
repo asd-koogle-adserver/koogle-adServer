@@ -13,7 +13,6 @@ import morgan from "morgan";
 import { click_capture_schema } from "./api_schema/click_capture";
 import moment from "moment";
 import geoip from "fast-geoip";
-import ip from "ip"
 
 const app = express();
 app.use(json());
@@ -84,11 +83,18 @@ async function startServer() {
   });
 
   app.get("/ip", async (req, res) => {
+    const ip =
+      req.headers["cf-connecting-ip"] ||
+      req.headers["x-real-ip"] ||
+      req.headers["x-forwaded-for"] ||
+      req.socket.remoteAddress ||
+      "";
 
-    const ip_address = ip.address();
+    const ip_address = typeof ip === "string" ? ip : ip[0];
+
     const geo = await geoip.lookup(ip_address);
 
-    res.send({ip_address, ...geo});
+    res.send({ ip_address, ...geo });
   });
 
   app.use(

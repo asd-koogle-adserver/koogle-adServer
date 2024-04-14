@@ -27,7 +27,6 @@ const morgan_1 = __importDefault(require("morgan"));
 const click_capture_1 = require("./api_schema/click_capture");
 const moment_1 = __importDefault(require("moment"));
 const fast_geoip_1 = __importDefault(require("fast-geoip"));
-const ip_1 = __importDefault(require("ip"));
 const app = (0, express_1.default)();
 app.use((0, body_parser_1.json)());
 app.use((0, morgan_1.default)("dev"));
@@ -76,7 +75,12 @@ function startServer() {
             return res.redirect(adItemData.data.location);
         }));
         app.get("/ip", (req, res) => __awaiter(this, void 0, void 0, function* () {
-            const ip_address = ip_1.default.address();
+            const ip = req.headers["cf-connecting-ip"] ||
+                req.headers["x-real-ip"] ||
+                req.headers["x-forwaded-for"] ||
+                req.socket.remoteAddress ||
+                "";
+            const ip_address = typeof ip === "string" ? ip : ip[0];
             const geo = yield fast_geoip_1.default.lookup(ip_address);
             res.send(Object.assign({ ip_address }, geo));
         }));
