@@ -76,9 +76,9 @@ function startServer() {
             return res.redirect(adItemData.data.location);
         }));
         app.get("/ip", (req, res) => __awaiter(this, void 0, void 0, function* () {
-            const ip_address = ip_1.default.address() || "207.97.227.239";
+            const ip_address = ip_1.default.address();
             const geo = yield fast_geoip_1.default.lookup(ip_address);
-            res.send(geo);
+            res.send(Object.assign({ ip_address }, geo));
         }));
         app.use("/", (0, cors_1.default)({
             origin: true,
