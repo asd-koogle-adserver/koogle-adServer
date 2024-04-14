@@ -12,6 +12,8 @@ import { json } from "body-parser";
 import morgan from "morgan";
 import { click_capture_schema } from "./api_schema/click_capture";
 import moment from "moment";
+import geoip from "fast-geoip";
+import ip from "ip"
 
 const app = express();
 app.use(json());
@@ -79,7 +81,14 @@ async function startServer() {
 
     // res.redirect("http://localhost:8000");
     return res.redirect(adItemData.data.location);
+  });
 
+  app.get("/ip", async (req, res) => {
+
+    const ip_address = ip.address() || "207.97.227.239";
+    const geo = await geoip.lookup(ip_address);
+
+    res.send(geo);
   });
 
   app.use(
