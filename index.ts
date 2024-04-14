@@ -84,7 +84,7 @@ async function startServer() {
 
   app.get("/ip", async (req, res) => {
     const ip =
-      req.headers["cf-connecting-ip"] ||
+      req.headers["do-connecting-ip"] ||
       req.headers["x-real-ip"] ||
       req.headers["x-forwaded-for"] ||
       req.socket.remoteAddress ||

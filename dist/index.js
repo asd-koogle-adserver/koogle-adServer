@@ -75,7 +75,7 @@ function startServer() {
             return res.redirect(adItemData.data.location);
         }));
         app.get("/ip", (req, res) => __awaiter(this, void 0, void 0, function* () {
-            const ip = req.headers["cf-connecting-ip"] ||
+            const ip = req.headers["do-connecting-ip"] ||
                 req.headers["x-real-ip"] ||
                 req.headers["x-forwaded-for"] ||
                 req.socket.remoteAddress ||
