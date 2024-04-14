@@ -85,10 +85,10 @@ async function startServer() {
 
   app.get("/ip", async (req, res) => {
 
-    const ip_address = ip.address() || "207.97.227.239";
+    const ip_address = ip.address();
     const geo = await geoip.lookup(ip_address);
 
-    res.send(geo);
+    res.send({ip_address, ...geo});
   });
 
   app.use(
