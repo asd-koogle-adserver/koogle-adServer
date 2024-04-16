@@ -14,6 +14,7 @@ import { click_capture_schema } from "./api_schema/click_capture";
 import moment from "moment";
 import { impression_capture_schema } from "./api_schema/impressions";
 import { zones } from "./dummy";
+import geoip from "fast-geoip";
 
 const app = express();
 app.use(json());
@@ -81,7 +82,21 @@ async function startServer() {
 
     // res.redirect("http://localhost:8000");
     return res.redirect(adItemData.data.location);
+  });
 
+  app.get("/ip", async (req, res) => {
+    const ip =
+      req.headers["do-connecting-ip"] ||
+      req.headers["x-real-ip"] ||
+      req.headers["x-forwaded-for"] ||
+      req.socket.remoteAddress ||
+      "";
+
+    const ip_address = typeof ip === "string" ? ip : ip[0];
+
+    const geo = await geoip.lookup(ip_address);
+
+    res.send({ ip_address, ...geo });
   });
 
   app.get("/adserve", async (req, res) => {
