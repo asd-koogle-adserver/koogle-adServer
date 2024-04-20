@@ -12,7 +12,7 @@ import { json } from "body-parser";
 import morgan from "morgan";
 import { click_capture_schema } from "./api_schema/click_capture";
 import moment from "moment";
-import { impression_capture_schema } from "./api_schema/impressions";
+import { impression_schema } from "./api_schema/impressions";
 import { zones } from "./dummy";
 import geoip from "fast-geoip";
 
@@ -88,96 +88,163 @@ async function startServer() {
   app.get(
     "/adserve",
     async (req, res) => {
-      //logic goes here
-      try {
-        const type = req.query.type; //request a query
-        const zoneID = parseInt(req.query.zoneID?.toString() ?? "0"); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
+      const { error: validationError, value } = impression_schema.validate(
+        req.query
+      );
 
-        //if there is a Zone object or not
-        const { data: zoneItemData, error } = await supabase
-          .from("Zones") //supabase table name
-          .select()
-          .eq("id", zoneID)
-          .maybeSingle();
+      if (validationError) {
+        return res.status(405).send({
+          success: false,
+          error: "VALIDATION_ERROR",
+          message: validationError.details[0].message,
+        });
+      }
 
-        if (!zoneItemData) {
-          return res.send("No Zone Item Found");
+      const { type, zone_id } = value;
+
+      const { data: zoneItemData, error } = await supabase
+        .from("zones") //supabase table name
+        .select()
+        .eq("id", zone_id)
+        .maybeSingle();
+
+      if (!zoneItemData) {
+        return res.send("No Zone Item Found");
+      }
+
+      const { data: placementsData, error: placementError } = await supabase
+        .from("placements") //supabase table name
+        .select()
+        .eq("zone_id", zone_id);
+
+      if (!placementsData || placementsData.length === 0) {
+        return res.send("No Placements Found"); //can add as we go
+      }
+
+      //placement
+      // Select a random placement from the fetched placements data
+      const randomIndex = Math.floor(Math.random() * placementsData.length);
+      const randomPlacement = placementsData[randomIndex];
+      const placement_id = randomPlacement.id;
+
+      // const type = req.query.type; //request a query
+      //const placement_id = parseInt(req.query.placement_id?.toString() ?? '0'); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
+      //still change ontop my logic
+      const { data: placementItemData } = await supabase
+        .from("campaigns") //supabase table name
+        .select()
+        .eq("id", placement_id)
+        .maybeSingle();
+
+      if (!placementItemData) {
+        return res.send("No Placements Found");
+      }
+      //TODO: From here on the logic needs to studied applied according to our ad server
+      //      We need to pick appropriate according to the publisher and advertiser match
+      //      A mixture of price, category and region
+
+      const campaign = parseInt(req.query.campaignID?.toString() ?? "0");
+
+      const { data: campaignItemData, error: campaignError } = await supabase
+        .from("Campaign")
+        .select()
+        .eq("id", placementItemData.advertisement_id)
+        .maybeSingle();
+
+      if (campaignError) {
+        // Handle any potential errors
+        return res.status(200).send("Error fetching campaign");
+      }
+
+      if (!campaignItemData) {
+        return res.send("No Campaign Found");
+      }
+      const campaignID = campaignItemData.id;
+
+      const adItem: any = {}; //TODO: this should be replace with actual advert that is select in the dnd
+      const adItemID = "";
+      // EoF TODO: After the ad selection criteria has been set we store the impression
+      //           And generate the ad
+
+      const { error: clickCaptureError } = await supabase
+        .from("impressions")
+        .insert({
+          placement_id: placement_id,
+          zone_id: zone_id,
+          campaign_id: campaignID,
+          advert_id: adItemID,
+          ip: get_ip(req),
+        });
+
+      // Creates redirect url, like below
+      const host = req.protocol + "://" + req.get("host");
+      const redirectURL = `${host}/redirect?placement_id=${placement_id}&zone_id=${zone_id}&campaign_id=${campaignID}&ad_item_id=${adItemID}`;
+      let response = null;
+
+      switch (type) {
+        case "js": {
+          response = "";
+          response +=
+            "document.write('<div style=\"display:inline-block;margin:0;padding:0;\">');";
+          response += "document.write('";
+          response +=
+            '<a href="' +
+            redirectURL +
+            '" target="' +
+            adItem.target_url +
+            '" rel="nofollow">';
+          response +=
+            '<img src="' +
+            adItem.content_url +
+            '" border="0" width="' +
+            adItem.width +
+            '" height="' +
+            adItem.height +
+            '">';
+          response += "</a>";
+          response += "');";
+          response += "document.write('</div>');";
+
+          res.setHeader("Content-Type", "text/plain");
+          res.end(response);
+          return;
         }
-        // } catch (e) { }
-        // Query the 'Placements' table in Supabase
-        const { data: placementsData, error: placementError } = await supabase
-          .from("Placements") //supabase table name
-          .select()
-          .eq("zone_id", zoneID);
+        case "iframe": {
+          response = "";
+          response +=
+            '<a href="' +
+            redirectURL +
+            '" target="' +
+            adItem.target_url +
+            '" rel="nofollow">';
+          response +=
+            '<img src="' +
+            adItem.content_url +
+            '" border="0" width="' +
+            adItem.width +
+            '" height="' +
+            adItem.height +
+            '">';
+          response += "</a>";
 
-        if (!placementsData || placementsData.length === 0) {
-          return res.send("No Placements Found"); //can add as we go
+          res.send(response);
+          return;
         }
+        case "json": {
+          response = {
+            width: adItem.width,
+            height: adItem.height,
+            target: adItem.target_url,
+            redirect_url: redirectURL,
+            image_url: adItem.content_url,
+          };
 
-        //placement
-        // Select a random placement from the fetched placements data
-        const randomIndex = Math.floor(Math.random() * placementsData.length);
-        const randomPlacement = placementsData[randomIndex];
-        const placement_id = randomPlacement.id;
-
-        // const type = req.query.type; //request a query
-        //const placement_id = parseInt(req.query.placement_id?.toString() ?? '0'); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
-        //still change ontop my logic
-        const { data: placementItemData } = await supabase
-          .from("Placement") //supabase table name
-          .select()
-          .eq("id", placement_id)
-          .maybeSingle();
-
-        if (!placementItemData) {
-          return res.send("No Placements Found");
+          res.send(response);
+          return;
         }
-        //const placementID = placement_id;
+      }
 
-        //campaign
-        //const type = req.query.type; //request a query
-        const campaign = parseInt(req.query.campaignID?.toString() ?? "0");
-
-        const { data: campaignItemData, error: campaignError } = await supabase
-          .from("Campaign")
-          .select()
-          .eq("id", placementItemData.advertisement_id)
-          .maybeSingle();
-
-        if (campaignError) {
-          // Handle any potential errors
-          return res.status(200).send("Error fetching campaign");
-        }
-
-        if (!campaignItemData) {
-          return res.send("No Campaign Found");
-        }
-        const campaignID = campaignItemData.id;
-
-        const { data: conversionsData } = await supabase
-          .from("Conversions")
-          .select()
-          .eq("campaign_id", campaignID);
-
-        // Retrieve ad items associated with conversions
-        const adItems = [];
-
-        if (conversionsData) {
-          for (const conversion of conversionsData) {
-            const { data: adItemsData, error: adItemsError } = await supabase
-              .from("AdItem")
-              .select()
-              .eq("conversion_id", conversion.id); // Assuming ad items have a foreign key reference to conversions
-
-            if (adItemsData) {
-              adItems.push(...adItemsData);
-            }
-          }
-        } else {
-          // Handle the case when no conversions are found
-          return res.send("No Conversions Found");
-        }
-      } catch (e) {}
+      return res.send("Unknown Ad type");
     }
 
     //placement
