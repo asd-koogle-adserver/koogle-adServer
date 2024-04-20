@@ -159,7 +159,7 @@ function startServer() {
             //Need revisit the query parameters what's needed is the
             //zone_id, idvertiser_id,
             const host = req.protocol + "://" + req.get("host");
-            const redirectURL = `${host}/redirect?publisher_id=${publisher_id}&zone_id=${zone_id}&campaign_id=${campaignID}&ad_item_id=${advertID}`;
+            const redirectURL = `${host}/redirect?publisher_id=${publisher_id}&zone_id=${zone_id}&ad_item_id=${advertID}`;
             let response = null;
             switch (type) {
                 case "js": {
