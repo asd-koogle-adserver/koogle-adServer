@@ -49,30 +49,26 @@ function startServer() {
                     message: validationError.details[0].message,
                 });
             }
-            const { placementID, zoneID, campaignID, adItemID } = value;
+            const { ad_item_id, publisher_id } = value;
             const { data: adItemData, error } = yield init_db_1.supabase
                 .from("adverts")
                 .select()
-                .eq("id", adItemID)
+                .eq("id", ad_item_id)
                 .maybeSingle();
             if (!adItemData) {
                 return res.send("No Ad Item Found");
             }
-            console.log(adItemData, " ------------- ", error);
             //Check if ip has already been recorded to have clicked this advert today
             //if so don't record the click, DoS
             //Record this as a click event
-            const { error: clickCaptureError } = yield init_db_1.supabase.from("clicks").insert({
-                placement_id: placementID,
-                zone_id: zoneID,
-                campaign_id: campaignID,
-                advert_id: adItemID,
-                ip: get_ip(req),
+            yield init_db_1.supabase.from("clicks").insert({
+                advert_id: ad_item_id,
+                publisher_id,
+                ip_address: get_ip(req),
             });
             //We can choose to transfer funds to publisher that brought the here
             console.log("Click captured");
-            // res.redirect("http://localhost:8000");
-            return res.redirect(adItemData.data.location);
+            return res.redirect(adItemData.target_url);
         }));
         app.get("/ip", (req, res) => __awaiter(this, void 0, void 0, function* () {
             const ip_address = get_ip(req);
@@ -80,7 +76,7 @@ function startServer() {
             res.send(Object.assign({ ip_address }, geo));
         }));
         app.get("/adserve", (req, res) => __awaiter(this, void 0, void 0, function* () {
-            var _a, _b;
+            //TODO: query parameter should include the advertiser id to know who sent client
             const { error: validationError, value } = impressions_1.impression_schema.validate(req.query);
             if (validationError) {
                 return res.status(405).send({
@@ -89,7 +85,7 @@ function startServer() {
                     message: validationError.details[0].message,
                 });
             }
-            const { type, zone_id } = value;
+            const { type, zone_id, publisher_id } = value;
             const { data: zoneItemData, error } = yield init_db_1.supabase
                 .from("zones") //supabase table name
                 .select()
@@ -98,62 +94,72 @@ function startServer() {
             if (!zoneItemData) {
                 return res.send("No Zone Item Found");
             }
-            const { data: placementsData, error: placementError } = yield init_db_1.supabase
-                .from("placements") //supabase table name
-                .select()
-                .eq("zone_id", zone_id);
-            if (!placementsData || placementsData.length === 0) {
-                return res.send("No Placements Found"); //can add as we go
-            }
-            //placement
-            // Select a random placement from the fetched placements data
-            const randomIndex = Math.floor(Math.random() * placementsData.length);
-            const randomPlacement = placementsData[randomIndex];
-            const placement_id = randomPlacement.id;
-            // const type = req.query.type; //request a query
-            //const placement_id = parseInt(req.query.placement_id?.toString() ?? '0'); //retrieves the zone.id and parses the value into Int. query parameters are typically treated as strings, so parsing to an integer ensures proper type handling
-            //still change ontop my logic
-            const { data: placementItemData } = yield init_db_1.supabase
-                .from("campaigns") //supabase table name
-                .select()
-                .eq("id", placement_id)
-                .maybeSingle();
-            if (!placementItemData) {
-                return res.send("No Placements Found");
-            }
             //TODO: From here on the logic needs to studied applied according to our ad server
             //      We need to pick appropriate according to the publisher and advertiser match
             //      A mixture of price, category and region
-            const campaign = parseInt((_b = (_a = req.query.campaignID) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "0");
+            //Step 1: Find campaigns with same dimensions as zone, still running and same region or no region defined
+            // Also only get adverts that are within the publishers price range maybe 10% less and more
+            var currentTimestamp = new Date().toISOString();
             const { data: campaignItemData, error: campaignError } = yield init_db_1.supabase
-                .from("Campaign")
-                .select()
-                .eq("id", placementItemData.advertisement_id)
-                .maybeSingle();
+                .from("campaigns")
+                .select("*, adverts(*, zones(*))")
+                .eq("adverts.zones.width", zoneItemData.width)
+                .eq("adverts.zones.height", zoneItemData.height)
+                .lte("start_date", currentTimestamp)
+                .gte("end_date", currentTimestamp);
+            if (campaignItemData === null || campaignItemData === void 0 ? void 0 : campaignItemData.length) {
+                console.log(campaignItemData, " campaing data....");
+            }
             if (campaignError) {
+                console.log(campaignError);
                 // Handle any potential errors
                 return res.status(200).send("Error fetching campaign");
             }
-            if (!campaignItemData) {
+            if (!campaignItemData.length) {
                 return res.send("No Campaign Found");
             }
-            const campaignID = campaignItemData.id;
-            const adItem = {}; //TODO: this should be replace with actual advert that is select in the dnd
-            const adItemID = "";
+            //TODO: check if any of the campaigns have regions defined if check again caller region
+            const validCampaigns = campaignItemData.filter((camp) => camp.adverts.length);
+            if (!validCampaigns.length) {
+                return res.send("No Campaign Found");
+            }
+            // Here choose now a specific campaign that will be selected
+            const selectedCampaign = validCampaigns[Math.floor(Math.random() * validCampaigns.length)];
+            const campaignID = selectedCampaign.id;
+            const { data: advertItemData, error: advertError } = yield init_db_1.supabase
+                .from("adverts")
+                .select("*, zones(*)")
+                .eq("campaign_id", selectedCampaign.id);
+            if (advertError) {
+                // Handle any potential errors
+                return res.status(200).send("Error fetching campaign");
+            }
+            if (!advertItemData.length) {
+                return res.send("No Advert Found");
+            }
+            // Here choose an advert from the selected campaign
+            // This can be based on the time remaining to the end and the relative weight to other
+            // adverts in the campaign
+            const selectedAdvert = advertItemData[Math.floor(Math.random() * advertItemData.length)];
+            const advertID = selectedAdvert.id;
             // EoF TODO: After the ad selection criteria has been set we store the impression
             //           And generate the ad
-            const { error: clickCaptureError } = yield init_db_1.supabase
+            const { error: impressionCaptureError } = yield init_db_1.supabase
                 .from("impressions")
                 .insert({
-                placement_id: placement_id,
-                zone_id: zone_id,
-                campaign_id: campaignID,
-                advert_id: adItemID,
-                ip: get_ip(req),
+                // placement_id: placement_id,
+                // zone_id: zone_id,
+                // campaign_id: campaignID,
+                advert_id: advertID,
+                publisher_id: publisher_id,
+                ip_address: get_ip(req),
             });
+            console.log(impressionCaptureError);
             // Creates redirect url, like below
+            //Need revisit the query parameters what's needed is the
+            //zone_id, idvertiser_id,
             const host = req.protocol + "://" + req.get("host");
-            const redirectURL = `${host}/redirect?placement_id=${placement_id}&zone_id=${zone_id}&campaign_id=${campaignID}&ad_item_id=${adItemID}`;
+            const redirectURL = `${host}/redirect?publisher_id=${publisher_id}&zone_id=${zone_id}&campaign_id=${campaignID}&ad_item_id=${advertID}`;
             let response = null;
             switch (type) {
                 case "js": {
@@ -165,15 +171,15 @@ function startServer() {
                         '<a href="' +
                             redirectURL +
                             '" target="' +
-                            adItem.target_url +
+                            selectedAdvert.target_url +
                             '" rel="nofollow">';
                     response +=
                         '<img src="' +
-                            adItem.content_url +
+                            selectedAdvert.content_url +
                             '" border="0" width="' +
-                            adItem.width +
+                            selectedAdvert.zones.width +
                             '" height="' +
-                            adItem.height +
+                            selectedAdvert.zones.height +
                             '">';
                     response += "</a>";
                     response += "');";
@@ -188,15 +194,15 @@ function startServer() {
                         '<a href="' +
                             redirectURL +
                             '" target="' +
-                            adItem.target_url +
+                            selectedAdvert.target_url +
                             '" rel="nofollow">';
                     response +=
                         '<img src="' +
-                            adItem.content_url +
+                            selectedAdvert.content_url +
                             '" border="0" width="' +
-                            adItem.width +
+                            selectedAdvert.zones.width +
                             '" height="' +
-                            adItem.height +
+                            selectedAdvert.zones.height +
                             '">';
                     response += "</a>";
                     res.send(response);
@@ -204,11 +210,11 @@ function startServer() {
                 }
                 case "json": {
                     response = {
-                        width: adItem.width,
-                        height: adItem.height,
-                        target: adItem.target_url,
+                        width: selectedAdvert.zones.width,
+                        height: selectedAdvert.zones.height,
+                        target: selectedAdvert.target_url,
                         redirect_url: redirectURL,
-                        image_url: adItem.content_url,
+                        image_url: selectedAdvert.content_url,
                     };
                     res.send(response);
                     return;
@@ -227,7 +233,7 @@ function startServer() {
         // json(),
         // cookieParser(),
         (0, express4_1.expressMiddleware)(server, {
-            context: (_c) => __awaiter(this, [_c], void 0, function* ({ req, res }) {
+            context: (_a) => __awaiter(this, [_a], void 0, function* ({ req, res }) {
                 return ({
                     // user: await get_user(req,res, JWT_SECRET,tokenRepository),
                     // authScope: getScope(req.headers.authorization) ,
@@ -249,3 +255,16 @@ const get_ip = (req) => {
     return typeof ip === "string" ? ip : ip[0];
 };
 startServer();
+/**
+ * Thoughts
+ *
+ * We can check for valid publishers based on impressions the've gotten in the past
+ * 30 days, helps filter against inactive ones and allowe new sign ups
+ *
+ * Also pick based metric choses by advertiser e.g. if they want clicks
+ * choose advertisers that have had highest click rates
+ *
+ * Placements can be kept if we choose to group adverts and publishers
+ * based on matching budget but this already going to be done on the backend
+ *
+ */
