@@ -102,14 +102,16 @@ function startServer() {
             var currentTimestamp = new Date().toISOString();
             const { data: campaignItemData, error: campaignError } = yield init_db_1.supabase
                 .from("campaigns")
-                .select("*, adverts(*, zones(*))")
+                .select("*, adverts(*, zones(*), impressions(count), clicks(count), conversions(count))")
                 .eq("adverts.zones.width", zoneItemData.width)
                 .eq("adverts.zones.height", zoneItemData.height)
                 .lte("start_date", currentTimestamp)
-                .gte("end_date", currentTimestamp);
+                .gte("end_date", currentTimestamp)
+                .order("budget", { ascending: false });
             if (campaignItemData === null || campaignItemData === void 0 ? void 0 : campaignItemData.length) {
                 console.log(campaignItemData, " campaing data....");
             }
+            // console.log(campaignItemData, ' ******')
             if (campaignError) {
                 console.log(campaignError);
                 // Handle any potential errors
@@ -119,13 +121,108 @@ function startServer() {
                 return res.send("No Campaign Found");
             }
             //TODO: check if any of the campaigns have regions defined if check again caller region
-            const validCampaigns = campaignItemData.filter((camp) => camp.adverts.length);
+            const validCampaigns = campaignItemData.filter((camp) => {
+                var totalImpressions = 0;
+                var totalClicks = 0;
+                var totalConversions = 0;
+                if (!camp.adverts.length) {
+                    return false;
+                }
+                // Check if target metrics reached
+                camp.adverts.forEach((advert) => {
+                    totalImpressions += advert.impressions[0].count;
+                    totalClicks += advert.clicks[0].count;
+                    totalConversions += advert.conversions[0].count;
+                });
+                if (camp.target_impressions > 0 &&
+                    totalImpressions >= camp.target_impressions) {
+                    return false;
+                }
+                if (camp.target_clicks > 0 && totalClicks >= camp.target_clicks) {
+                    return false;
+                }
+                if (camp.target_conversions > 0 &&
+                    totalConversions >= camp.target_conversions) {
+                    return false;
+                }
+                return true;
+            });
+            // Fetch perfomance history of publisher, check their click through and conversion rates
+            // Compare this with what the advertiser wants e.g. if the publisher
+            // gets a lot clicks then give them adverts that require clicks
+            // if they get a lot of conversions give them adverts that are looking for conversions
+            const { data: publisherData, error: publisherError } = yield init_db_1.supabase
+                .from("publishers")
+                .select("*, impressions(count), clicks(count), conversions(count)");
+            // .eq("publisher_id", publisher_id)
+            var position_on_impressions = -1;
+            var position_on_conversions = -1;
+            var position_on_clicks = -1;
+            if (publisherData === null || publisherData === void 0 ? void 0 : publisherData.length) {
+                // console.log(publisherData[0].impressions, " publisher data...");
+                publisherData
+                    .sort((a, b) => a.impressions - b.impressions)
+                    .find((publisher, index) => {
+                    if (publisher.id === publisher_id) {
+                        position_on_impressions = index;
+                    }
+                });
+                publisherData
+                    .sort((a, b) => a.clicks - b.clicks)
+                    .find((publisher, index) => {
+                    if (publisher.id === publisher_id) {
+                        position_on_clicks = index;
+                    }
+                });
+                publisherData
+                    .sort((a, b) => a.conversions - b.conversions)
+                    .find((publisher, index) => {
+                    if (publisher.id === publisher_id) {
+                        position_on_conversions = index;
+                    }
+                });
+            }
+            console.log("Position on clicks: ", position_on_clicks);
+            console.log("Position on conversions: ", position_on_conversions);
+            console.log("Position on impressions: ", position_on_impressions);
             if (!validCampaigns.length) {
                 return res.send("No Campaign Found");
             }
+            var campaignsForDraw = [];
+            /**
+             * We choose the top 10 appropriate campaigns with the following weighing
+             * 5 Conversion
+             * 3 Click
+             * 2 Impression
+             *
+             * If however I don't relatively rank higher in the previos metric or there's
+             * not enough campaigns with the metric I'm best in then
+             * the next one should take more precedence e.g.
+             * if there's not 5 conversion campaign then clicks should cover for the remaining
+             * space that was reserved for conversions
+             */
+            if (position_on_conversions >= position_on_clicks) {
+                const conversion_campaigns = validCampaigns.filter((campaign) => campaign.target_metric === "CPI");
+                campaignsForDraw = campaignsForDraw.concat(conversion_campaigns.slice(0, conversion_campaigns.length >= 6 ? 6 : conversion_campaigns.length));
+            }
+            if (position_on_clicks >= position_on_impressions) {
+                const click_campaigns = validCampaigns.filter((campaign) => campaign.target_metric === "CPC");
+                const amountToBeSelected = 4 + (5 - campaignsForDraw.length);
+                campaignsForDraw = campaignsForDraw.concat(click_campaigns.slice(0, click_campaigns.length >= amountToBeSelected
+                    ? amountToBeSelected
+                    : click_campaigns.length));
+            }
+            const impression_campaigns = validCampaigns.filter((campaign) => campaign.target_metric === "CPM");
+            const amountToBeSelected = 3 + (8 - campaignsForDraw.length);
+            //
+            campaignsForDraw = campaignsForDraw.concat(impression_campaigns.slice(0, impression_campaigns.length >= amountToBeSelected
+                ? amountToBeSelected
+                : impression_campaigns.length));
+            if (!campaignsForDraw.length) {
+                return res.send("No valid campaigns Found");
+            }
             // Here choose now a specific campaign that will be selected
-            const selectedCampaign = validCampaigns[Math.floor(Math.random() * validCampaigns.length)];
-            const campaignID = selectedCampaign.id;
+            const selectedCampaign = campaignsForDraw[Math.floor(Math.random() * campaignsForDraw.length)];
             const { data: advertItemData, error: advertError } = yield init_db_1.supabase
                 .from("adverts")
                 .select("*, zones(*)")
@@ -154,7 +251,7 @@ function startServer() {
                 publisher_id: publisher_id,
                 ip_address: get_ip(req),
             });
-            console.log(impressionCaptureError);
+            // console.log(impressionCaptureError);
             // Creates redirect url, like below
             //Need revisit the query parameters what's needed is the
             //zone_id, idvertiser_id,
@@ -264,7 +361,5 @@ startServer();
  * Also pick based metric choses by advertiser e.g. if they want clicks
  * choose advertisers that have had highest click rates
  *
- * Placements can be kept if we choose to group adverts and publishers
- * based on matching budget but this already going to be done on the backend
  *
  */
