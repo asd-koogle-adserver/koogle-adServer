@@ -102,14 +102,16 @@ function startServer() {
             var currentTimestamp = new Date().toISOString();
             const { data: campaignItemData, error: campaignError } = yield init_db_1.supabase
                 .from("campaigns")
-                .select("*, adverts(*, zones(*))")
+                .select("*, adverts(*, zones(*), impressions(count), clicks(count), conversions(count))")
                 .eq("adverts.zones.width", zoneItemData.width)
                 .eq("adverts.zones.height", zoneItemData.height)
                 .lte("start_date", currentTimestamp)
-                .gte("end_date", currentTimestamp);
+                .gte("end_date", currentTimestamp)
+                .order("budget", { ascending: false });
             if (campaignItemData === null || campaignItemData === void 0 ? void 0 : campaignItemData.length) {
                 console.log(campaignItemData, " campaing data....");
             }
+            // console.log(campaignItemData, ' ******')
             if (campaignError) {
                 console.log(campaignError);
                 // Handle any potential errors
@@ -119,13 +121,37 @@ function startServer() {
                 return res.send("No Campaign Found");
             }
             //TODO: check if any of the campaigns have regions defined if check again caller region
-            const validCampaigns = campaignItemData.filter((camp) => camp.adverts.length);
+            const validCampaigns = campaignItemData.filter((camp) => {
+                var totalImpressions = 0;
+                var totalClicks = 0;
+                var totalConversions = 0;
+                if (!camp.adverts.length) {
+                    return false;
+                }
+                // Check if target metrics reached
+                camp.adverts.forEach((advert) => {
+                    totalImpressions += advert.impressions[0].count;
+                    totalClicks += advert.clicks[0].count;
+                    totalConversions += advert.conversions[0].count;
+                });
+                if (camp.target_impressions > 0 &&
+                    totalImpressions >= camp.target_impressions) {
+                    return false;
+                }
+                if (camp.target_clicks > 0 && totalClicks >= camp.target_clicks) {
+                    return false;
+                }
+                if (camp.target_conversions > 0 &&
+                    totalConversions >= camp.target_conversions) {
+                    return false;
+                }
+                return true;
+            });
             if (!validCampaigns.length) {
                 return res.send("No Campaign Found");
             }
             // Here choose now a specific campaign that will be selected
             const selectedCampaign = validCampaigns[Math.floor(Math.random() * validCampaigns.length)];
-            const campaignID = selectedCampaign.id;
             const { data: advertItemData, error: advertError } = yield init_db_1.supabase
                 .from("adverts")
                 .select("*, zones(*)")
@@ -264,7 +290,5 @@ startServer();
  * Also pick based metric choses by advertiser e.g. if they want clicks
  * choose advertisers that have had highest click rates
  *
- * Placements can be kept if we choose to group adverts and publishers
- * based on matching budget but this already going to be done on the backend
  *
  */
