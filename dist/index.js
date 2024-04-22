@@ -25,6 +25,7 @@ const http_1 = __importDefault(require("http"));
 const body_parser_1 = require("body-parser");
 const morgan_1 = __importDefault(require("morgan"));
 const click_capture_1 = require("./api_schema/click_capture");
+const moment_1 = __importDefault(require("moment"));
 const impressions_1 = require("./api_schema/impressions");
 const fast_geoip_1 = __importDefault(require("fast-geoip"));
 const app = (0, express_1.default)();
@@ -58,6 +59,15 @@ function startServer() {
             if (!adItemData) {
                 return res.send("No Ad Item Found");
             }
+            const { data: publisherData, error: pubError } = yield init_db_1.supabase
+                .from("zones_publishers")
+                .select()
+                .eq("publisher_id", publisher_id)
+                .eq("zone_id", adItemData.zone_id)
+                .maybeSingle();
+            if (!publisherData) {
+                return res.send("Invalid publisher provided");
+            }
             //Check if ip has already been recorded to have clicked this advert today
             //if so don't record the click, DoS
             //Record this as a click event
@@ -65,6 +75,7 @@ function startServer() {
                 advert_id: ad_item_id,
                 publisher_id,
                 ip_address: get_ip(req),
+                cost: publisherData.price,
             });
             //We can choose to transfer funds to publisher that brought the here
             console.log("Click captured");
@@ -102,15 +113,12 @@ function startServer() {
             var currentTimestamp = new Date().toISOString();
             const { data: campaignItemData, error: campaignError } = yield init_db_1.supabase
                 .from("campaigns")
-                .select("*, adverts(*, zones(*), impressions(count), clicks(count), conversions(count))")
+                .select("*, adverts(*, zones(*), impressions(*), clicks(*), conversions(*))")
                 .eq("adverts.zones.width", zoneItemData.width)
                 .eq("adverts.zones.height", zoneItemData.height)
                 .lte("start_date", currentTimestamp)
                 .gte("end_date", currentTimestamp)
                 .order("budget", { ascending: false });
-            if (campaignItemData === null || campaignItemData === void 0 ? void 0 : campaignItemData.length) {
-                console.log(campaignItemData, " campaing data....");
-            }
             // console.log(campaignItemData, ' ******')
             if (campaignError) {
                 console.log(campaignError);
@@ -121,18 +129,41 @@ function startServer() {
                 return res.send("No Campaign Found");
             }
             //TODO: check if any of the campaigns have regions defined if check again caller region
-            const validCampaigns = campaignItemData.filter((camp) => {
+            var validCampaigns = campaignItemData.filter((camp) => {
                 var totalImpressions = 0;
                 var totalClicks = 0;
                 var totalConversions = 0;
+                var predicted_cost_to_date = 0;
+                var predicted_spent_today = 0;
                 if (!camp.adverts.length) {
                     return false;
                 }
                 // Check if target metrics reached
                 camp.adverts.forEach((advert) => {
-                    totalImpressions += advert.impressions[0].count;
-                    totalClicks += advert.clicks[0].count;
-                    totalConversions += advert.conversions[0].count;
+                    totalImpressions += advert.impressions.length;
+                    totalClicks += advert.clicks.length;
+                    totalConversions += advert.conversions.length;
+                    advert.impressions.forEach((item) => {
+                        predicted_cost_to_date += item.cost;
+                        var iscurrentDate = (0, moment_1.default)(item.created_at).isSame(new Date(), "day");
+                        if (iscurrentDate) {
+                            predicted_spent_today += item.cost;
+                        }
+                    });
+                    advert.clicks.forEach((item) => {
+                        predicted_cost_to_date += item.cost;
+                        var iscurrentDate = (0, moment_1.default)(item.created_at).isSame(new Date(), "day");
+                        if (iscurrentDate) {
+                            predicted_spent_today += item.cost;
+                        }
+                    });
+                    advert.conversions.forEach((item) => {
+                        predicted_cost_to_date += item.cost;
+                        var iscurrentDate = (0, moment_1.default)(item.created_at).isSame(new Date(), "day");
+                        if (iscurrentDate) {
+                            predicted_spent_today += item.cost;
+                        }
+                    });
                 });
                 if (camp.target_impressions > 0 &&
                     totalImpressions >= camp.target_impressions) {
@@ -145,8 +176,22 @@ function startServer() {
                     totalConversions >= camp.target_conversions) {
                     return false;
                 }
+                //How long the campaign has been running for
+                const running_duration = moment_1.default
+                    .duration((0, moment_1.default)(camp.end_date).diff((0, moment_1.default)(camp.start_date)))
+                    .asDays();
+                camp.remaining_budget =
+                    camp.budget * running_duration - predicted_cost_to_date;
+                /**
+                 * Check if daily budget has been reached
+                 * Do not show advert if amount budgeted per day has been reached
+                 */
+                if (camp.budget < predicted_spent_today) {
+                    return false;
+                }
                 return true;
             });
+            validCampaigns = validCampaigns.sort((a, b) => a - b);
             // Fetch perfomance history of publisher, check their click through and conversion rates
             // Compare this with what the advertiser wants e.g. if the publisher
             // gets a lot clicks then give them adverts that require clicks
@@ -168,14 +213,14 @@ function startServer() {
                     }
                 });
                 publisherData
-                    .sort((a, b) => a.clicks - b.clicks)
+                    .sort((a, b) => a.clicks / a.impressions - b.clicks / b.impressions)
                     .find((publisher, index) => {
                     if (publisher.id === publisher_id) {
                         position_on_clicks = index;
                     }
                 });
                 publisherData
-                    .sort((a, b) => a.conversions - b.conversions)
+                    .sort((a, b) => a.conversions / a.clicks - b.conversions / b.clicks)
                     .find((publisher, index) => {
                     if (publisher.id === publisher_id) {
                         position_on_conversions = index;
@@ -241,20 +286,23 @@ function startServer() {
             const advertID = selectedAdvert.id;
             // EoF TODO: After the ad selection criteria has been set we store the impression
             //           And generate the ad
+            const { data: currentPublisherZone } = yield init_db_1.supabase
+                .from("zones_publishers")
+                .select()
+                .eq("publisher_id", publisher_id)
+                .eq("zone_id", selectedAdvert.zone_id)
+                .maybeSingle();
+            if (!publisherData) {
+                return res.send("Invalid publisher provided");
+            }
             const { error: impressionCaptureError } = yield init_db_1.supabase
                 .from("impressions")
                 .insert({
-                // placement_id: placement_id,
-                // zone_id: zone_id,
-                // campaign_id: campaignID,
                 advert_id: advertID,
                 publisher_id: publisher_id,
                 ip_address: get_ip(req),
+                cost: currentPublisherZone.price,
             });
-            // console.log(impressionCaptureError);
-            // Creates redirect url, like below
-            //Need revisit the query parameters what's needed is the
-            //zone_id, idvertiser_id,
             const host = req.protocol + "://" + req.get("host");
             const redirectURL = `${host}/redirect?publisher_id=${publisher_id}&zone_id=${zone_id}&ad_item_id=${advertID}`;
             let response = null;
